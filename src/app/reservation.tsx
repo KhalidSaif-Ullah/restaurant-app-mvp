@@ -1,14 +1,16 @@
+
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 import useReservation from '../hooks/useReservation';
@@ -33,18 +35,35 @@ export default function Reservation() {
     isSlotAvailable,
   } = useReservation();
 
-  const [showConfirmation, setShowConfirmation] =
-    useState(false);
+  const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
-  const handleReserve = () => {
-    const result = createReservation();
+  const handleReserve = async () => {
+    if (isSubmitting) return;
 
-    if (!result.success) {
-      Alert.alert('Reservation', result.message);
-      return;
+    setIsSubmitting(true);
+
+    try {
+      const result = await createReservation();
+
+      if (!result.success) {
+        Alert.alert(
+          'Reservation Failed',
+          result.message || 'Could not create your reservation.'
+        );
+        return;
+      }
+
+      setShowConfirmation(true);
+    } catch (error: any) {
+      Alert.alert(
+        'Reservation Failed',
+        error.message || 'Could not create your reservation.'
+      );
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setShowConfirmation(true);
   };
 
   const handleCancel = (id: string) => {
@@ -58,7 +77,36 @@ export default function Reservation() {
         },
         {
           text: 'Yes',
-          onPress: () => cancelReservation(id),
+          style: 'destructive',
+          onPress: async () => {
+            if (isCancelling) return;
+
+            setIsCancelling(true);
+
+            try {
+              const result = await cancelReservation(id);
+
+              if (!result.success) {
+                Alert.alert(
+                  'Cancellation Failed',
+                  result.message || 'Could not cancel the reservation.'
+                );
+                return;
+              }
+
+              Alert.alert(
+                'Reservation Cancelled',
+                'Your reservation has been cancelled.'
+              );
+            } catch (error: any) {
+              Alert.alert(
+                'Cancellation Failed',
+                error.message || 'Could not cancel the reservation.'
+              );
+            } finally {
+              setIsCancelling(false);
+            }
+          },
         },
       ]
     );
@@ -163,11 +211,10 @@ export default function Reservation() {
 
         <View style={styles.timeGrid}>
           {timeSlots.map((time) => {
-            const available =
-              isSlotAvailable(
-                selectedDate,
-                time
-              );
+            const available = isSlotAvailable(
+              selectedDate,
+              time
+            );
 
             return (
               <TouchableOpacity
@@ -175,22 +222,16 @@ export default function Reservation() {
                 disabled={!available}
                 style={[
                   styles.timeButton,
-                  !available &&
-                    styles.disabledTimeButton,
-                  selectedTime === time &&
-                    styles.selectedTimeButton,
+                  !available && styles.disabledTimeButton,
+                  selectedTime === time && styles.selectedTimeButton,
                 ]}
-                onPress={() =>
-                  setSelectedTime(time)
-                }
+                onPress={() => setSelectedTime(time)}
               >
                 <Text
                   style={[
                     styles.timeText,
-                    selectedTime === time &&
-                      styles.selectedTimeText,
-                    !available &&
-                      styles.disabledTimeText,
+                    selectedTime === time && styles.selectedTimeText,
+                    !available && styles.disabledTimeText,
                   ]}
                 >
                   {time}
@@ -201,12 +242,20 @@ export default function Reservation() {
         </View>
 
         <TouchableOpacity
-          style={styles.reserveButton}
+          style={[
+            styles.reserveButton,
+            isSubmitting && styles.disabledButton,
+          ]}
           onPress={handleReserve}
+          disabled={isSubmitting}
         >
-          <Text style={styles.buttonText}>
-            Reserve Table
-          </Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.buttonText}>
+              Reserve Table
+            </Text>
+          )}
         </TouchableOpacity>
 
         <Text
@@ -242,8 +291,7 @@ export default function Reservation() {
                   { color: theme.text },
                 ]}
               >
-                {reservation.date} at{' '}
-                {reservation.time}
+                {reservation.date} at {reservation.time}
               </Text>
 
               <Text
@@ -261,7 +309,7 @@ export default function Reservation() {
                   { color: theme.text },
                 ]}
               >
-                Table: {reservation.tableId}
+                Table: {reservation.tableId || 'Not assigned'}
               </Text>
 
               <Text
@@ -273,16 +321,20 @@ export default function Reservation() {
                 Status: {reservation.status}
               </Text>
 
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() =>
-                  handleCancel(reservation.id)
-                }
-              >
-                <Text style={styles.buttonText}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
+              {reservation.status !== 'Cancelled' && (
+                <TouchableOpacity
+                  style={[
+                    styles.cancelButton,
+                    isCancelling && styles.disabledButton,
+                  ]}
+                  onPress={() => handleCancel(reservation.id)}
+                  disabled={isCancelling}
+                >
+                  <Text style={styles.buttonText}>
+                    {isCancelling ? 'Please wait...' : 'Cancel'}
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))
         )}
@@ -291,9 +343,7 @@ export default function Reservation() {
           style={styles.backButton}
           onPress={() => router.back()}
         >
-          <Text style={styles.buttonText}>
-            Back
-          </Text>
+          <Text style={styles.buttonText}>Back</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -301,9 +351,7 @@ export default function Reservation() {
         visible={showConfirmation}
         transparent
         animationType="fade"
-        onRequestClose={() =>
-          setShowConfirmation(false)
-        }
+        onRequestClose={() => setShowConfirmation(false)}
       >
         <View style={styles.modalOverlay}>
           <View
@@ -318,7 +366,7 @@ export default function Reservation() {
                 { color: theme.text },
               ]}
             >
-              Reservation Confirmed
+              Reservation Submitted
             </Text>
 
             <Text
@@ -327,19 +375,16 @@ export default function Reservation() {
                 { color: theme.text },
               ]}
             >
-              Your table has been reserved for{' '}
-              {selectedDate} at {selectedTime}.
+              Your reservation for {selectedDate} at {selectedTime}
+              has been saved. Its current status is Pending until
+              the restaurant confirms it.
             </Text>
 
             <TouchableOpacity
               style={styles.reserveButton}
-              onPress={() =>
-                setShowConfirmation(false)
-              }
+              onPress={() => setShowConfirmation(false)}
             >
-              <Text style={styles.buttonText}>
-                Done
-              </Text>
+              <Text style={styles.buttonText}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -352,26 +397,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-
   content: {
     padding: 20,
     paddingTop: 50,
     paddingBottom: 40,
   },
-
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     marginBottom: 20,
   },
-
   label: {
     fontSize: 16,
     fontWeight: 'bold',
     marginTop: 12,
     marginBottom: 6,
   },
-
   input: {
     borderWidth: 1,
     borderRadius: 8,
@@ -380,14 +421,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 45,
   },
-
   timeGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
     marginTop: 5,
   },
-
   timeButton: {
     minWidth: 70,
     minHeight: 42,
@@ -398,28 +437,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   selectedTimeButton: {
     backgroundColor: '#333',
   },
-
   disabledTimeButton: {
     opacity: 0.35,
   },
-
   timeText: {
     color: '#222',
     fontWeight: '600',
   },
-
   selectedTimeText: {
     color: '#fff',
   },
-
   disabledTimeText: {
     color: '#555',
   },
-
   reserveButton: {
     backgroundColor: '#333',
     minHeight: 45,
@@ -430,33 +463,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 20,
   },
-
+  disabledButton: {
+    opacity: 0.6,
+  },
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
-
   sectionTitle: {
     fontSize: 21,
     fontWeight: 'bold',
     marginTop: 30,
     marginBottom: 10,
   },
-
   emptyText: {
     marginTop: 5,
   },
-
   reservationCard: {
     padding: 15,
     borderRadius: 10,
     marginBottom: 10,
   },
-
   reservationText: {
     marginBottom: 5,
   },
-
   cancelButton: {
     backgroundColor: '#333',
     padding: 10,
@@ -464,7 +494,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-
   backButton: {
     backgroundColor: '#333',
     padding: 13,
@@ -472,7 +501,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
   },
-
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -480,19 +508,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 25,
   },
-
   modalCard: {
     width: '100%',
     borderRadius: 12,
     padding: 25,
   },
-
   modalTitle: {
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 10,
   },
-
   modalText: {
     fontSize: 16,
     lineHeight: 23,

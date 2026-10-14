@@ -1,21 +1,21 @@
 import { useRouter } from 'expo-router';
 import {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import MenuItemCard from '../components/MenuItemCard';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +28,7 @@ const categories = [
   'All',
   'Starters',
   'Mains',
+  'Burgers',
   'Desserts',
   'Drinks',
 ];

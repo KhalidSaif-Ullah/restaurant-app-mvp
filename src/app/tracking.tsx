@@ -1,76 +1,27 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
 import {
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useOrders } from '../context/OrdersContext';
 import { useTheme } from '../context/ThemeContext';
 
 const statuses = [
   'Pending',
+  'Confirmed',
   'Preparing',
   'Ready',
-  'Served',
+  'Delivered',
 ];
 
 export default function Tracking() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { state, dispatch } = useOrders();
+  const { state } = useOrders();
 
   const order = state.orders[state.orders.length - 1];
-
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    if (!order) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setElapsed((current) => current + 1);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [order?.id]);
-
-  useEffect(() => {
-    if (!order) {
-      return;
-    }
-
-    const statusTimer = setInterval(() => {
-      const elapsedSeconds =
-        Math.floor(
-          (Date.now() - order.timestamp) / 1000
-        );
-
-      let nextStatus = 'Pending';
-
-      if (elapsedSeconds >= 30) {
-        nextStatus = 'Served';
-      } else if (elapsedSeconds >= 20) {
-        nextStatus = 'Ready';
-      } else if (elapsedSeconds >= 10) {
-        nextStatus = 'Preparing';
-      }
-
-      if (nextStatus !== order.status) {
-        dispatch({
-          type: 'UPDATE_ORDER_STATUS',
-          payload: {
-            id: order.id,
-            status: nextStatus,
-          },
-        });
-      }
-    }, 1000);
-
-    return () => clearInterval(statusTimer);
-  }, [order?.id, order?.status, dispatch]);
 
   if (!order) {
     return (
@@ -89,6 +40,15 @@ export default function Tracking() {
           No Active Order
         </Text>
 
+        <Text
+          style={[
+            styles.info,
+            { color: theme.text },
+          ]}
+        >
+          Place an order to track its progress.
+        </Text>
+
         <TouchableOpacity
           style={styles.button}
           onPress={() => router.replace('/menu')}
@@ -101,9 +61,23 @@ export default function Tracking() {
     );
   }
 
-  const currentIndex = statuses.indexOf(
-    order.status
+  const currentIndex = statuses.indexOf(order.status);
+  const isCancelled = order.status === 'Cancelled';
+  const isDelivered = order.status === 'Delivered';
+
+  const progressIndex = isCancelled
+    ? -1
+    : currentIndex;
+
+  const orderId = String(order.id ?? order._id ?? '');
+
+  const total = Number(
+    order.total ?? order.totalAmount ?? 0
   );
+
+  const orderItems = Array.isArray(order.items)
+    ? order.items
+    : [];
 
   return (
     <View
@@ -127,7 +101,7 @@ export default function Tracking() {
           { color: theme.text },
         ]}
       >
-        Order #{order.id.slice(-5)}
+        Order #{orderId.slice(-5)}
       </Text>
 
       <Text
@@ -136,7 +110,7 @@ export default function Tracking() {
           { color: theme.text },
         ]}
       >
-        {order.type}
+        {order.type || 'Restaurant Order'}
       </Text>
 
       {order.tableNumber && (
@@ -161,58 +135,85 @@ export default function Tracking() {
         </Text>
       )}
 
-      <View style={styles.progress}>
-        {statuses.map((status, index) => {
-          const completed =
-            index <= currentIndex;
+      {isCancelled ? (
+        <View
+          style={[
+            styles.statusCard,
+            { backgroundColor: theme.card },
+          ]}
+        >
+          <Text
+            style={[
+              styles.currentLabel,
+              { color: theme.text },
+            ]}
+          >
+            Order Status
+          </Text>
 
-          return (
-            <View
-              key={status}
-              style={styles.step}
-            >
+          <Text style={styles.cancelledStatus}>
+            Cancelled
+          </Text>
+
+          <Text
+            style={[
+              styles.info,
+              { color: theme.text },
+            ]}
+          >
+            This order has been cancelled.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.progress}>
+          {statuses.map((status, index) => {
+            const completed = index <= progressIndex;
+
+            return (
               <View
-                style={[
-                  styles.circle,
-                  completed &&
-                    styles.completedCircle,
-                ]}
+                key={status}
+                style={styles.step}
               >
-                <Text
-                  style={[
-                    styles.circleText,
-                    completed &&
-                      styles.completedText,
-                  ]}
-                >
-                  {index + 1}
-                </Text>
-              </View>
-
-              <Text
-                style={[
-                  styles.statusText,
-                  { color: theme.text },
-                  completed &&
-                    styles.completedStatus,
-                ]}
-              >
-                {status}
-              </Text>
-
-              {index < statuses.length - 1 && (
                 <View
                   style={[
-                    styles.line,
-                    index < currentIndex &&
-                      styles.completedLine,
+                    styles.circle,
+                    completed && styles.completedCircle,
                   ]}
-                />
-              )}
-            </View>
-          );
-        })}
-      </View>
+                >
+                  <Text
+                    style={[
+                      styles.circleText,
+                      completed && styles.completedText,
+                    ]}
+                  >
+                    {index + 1}
+                  </Text>
+                </View>
+
+                <Text
+                  style={[
+                    styles.statusText,
+                    { color: theme.text },
+                    completed && styles.completedStatus,
+                  ]}
+                >
+                  {status}
+                </Text>
+
+                {index < statuses.length - 1 && (
+                  <View
+                    style={[
+                      styles.line,
+                      index < progressIndex &&
+                        styles.completedLine,
+                    ]}
+                  />
+                )}
+              </View>
+            );
+          })}
+        </View>
+      )}
 
       <View
         style={[
@@ -232,19 +233,24 @@ export default function Tracking() {
         <Text
           style={[
             styles.currentStatus,
-            { color: theme.text },
+            isCancelled && styles.cancelledStatus,
+            isDelivered && styles.deliveredStatus,
           ]}
         >
-          {order.status}
+          {order.status || 'Pending'}
         </Text>
 
         <Text
           style={[
-            styles.elapsed,
+            styles.info,
             { color: theme.text },
           ]}
         >
-          Elapsed Time: {elapsed}s
+          {isDelivered
+            ? 'Your order has been delivered.'
+            : isCancelled
+              ? 'This order is no longer active.'
+              : 'Your order status is managed by the restaurant.'}
         </Text>
       </View>
 
@@ -257,17 +263,31 @@ export default function Tracking() {
         Items
       </Text>
 
-      {order.items.map((item: any) => (
-        <Text
-          key={item.id}
-          style={[
-            styles.item,
-            { color: theme.text },
-          ]}
-        >
-          {item.name} × {item.quantity}
-        </Text>
-      ))}
+      {orderItems.map((item: any, index: number) => {
+        const itemId = String(
+          item.id ??
+          item._id ??
+          item.menuItem ??
+          index
+        );
+
+        const itemName =
+          item.name ??
+          item.menuItem?.name ??
+          'Menu Item';
+
+        return (
+          <Text
+            key={`${itemId}-${index}`}
+            style={[
+              styles.item,
+              { color: theme.text },
+            ]}
+          >
+            {itemName} × {item.quantity}
+          </Text>
+        );
+      })}
 
       <Text
         style={[
@@ -275,7 +295,7 @@ export default function Tracking() {
           { color: theme.text },
         ]}
       >
-        Total: Rs. {order.total.toFixed(2)}
+        Total: Rs. {total.toFixed(2)}
       </Text>
 
       <TouchableOpacity
@@ -313,7 +333,7 @@ const styles = StyleSheet.create({
   },
 
   info: {
-    marginTop: 3,
+    marginTop: 6,
   },
 
   progress: {
@@ -382,13 +402,21 @@ const styles = StyleSheet.create({
   },
 
   currentStatus: {
+    color: '#333',
     fontSize: 24,
     fontWeight: 'bold',
     marginTop: 4,
   },
 
-  elapsed: {
-    marginTop: 8,
+  cancelledStatus: {
+    color: '#c62828',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginTop: 4,
+  },
+
+  deliveredStatus: {
+    color: '#2e7d32',
   },
 
   itemsTitle: {

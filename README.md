@@ -106,3 +106,6 @@ restaurant-app-mvp/
 **Course:** Mobile Application Development
 **Semester:** Fall 2026
 
+## A2 — Backend and API Demo
+
+[View the A2 Backend and API Demo](https://drive.google.com/file/d/1QazdXWF6wkTUIuN-TuyAOXCLK44eQu-U/view?usp=drivesdk)

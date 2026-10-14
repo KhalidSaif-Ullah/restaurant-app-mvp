@@ -1,0 +1,815 @@
+
+{
+  "info": {
+    "name": "Restaurant API",
+    "description": "A2 API verification: health, authentication, menu CRUD, orders, reservations, tables, authorization and error handling.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/health"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Health returns 200', () => pm.response.to.have.status(200));",
+              "pm.test('Health status is ok and time exists', () => { const b = pm.response.json(); pm.expect(b.status).to.eql('ok'); pm.expect(b.time).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - MongoDB connection check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/test-db"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Database connection check returns 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Unknown route returns 404",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/route-that-does-not-exist"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Unknown route returns 404', () => pm.response.to.have.status(404));",
+              "pm.test('Unknown route message is Route not found', () => pm.expect(pm.response.json().message).to.eql('Route not found'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Register customer",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('customerEmail')) pm.collectionVariables.set('customerEmail', 'a2_customer_' + Date.now() + '@example.com');",
+              "pm.collectionVariables.set('customerPassword', 'Customer123!');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Customer registration returns 201', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"A2 Test Customer\",\"email\":\"{{customerEmail}}\",\"password\":\"{{customerPassword}}\",\"role\":\"Customer\"}"
+        },
+        "url": "{{baseUrl}}/api/auth/register"
+      }
+    },
+    {
+      "name": "05 - Login customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{customerEmail}}\",\"password\":\"{{customerPassword}}\"}"
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Customer login returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "if (b.token) pm.collectionVariables.set('customerToken', b.token);",
+              "pm.test('Customer token received', () => pm.expect(b.token).to.be.a('string').and.not.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Get customer profile",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/auth/profile"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Profile returns 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Register manager",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('managerEmail')) pm.collectionVariables.set('managerEmail', 'a2_manager_' + Date.now() + '@example.com');",
+              "pm.collectionVariables.set('managerPassword', 'Manager123!');"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager registration returns 201', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"A2 Test Manager\",\"email\":\"{{managerEmail}}\",\"password\":\"{{managerPassword}}\",\"role\":\"Manager\"}"
+        },
+        "url": "{{baseUrl}}/api/auth/register"
+      }
+    },
+    {
+      "name": "08 - Login manager",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{managerEmail}}\",\"password\":\"{{managerPassword}}\"}"
+        },
+        "url": "{{baseUrl}}/api/auth/login"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager login returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "if (b.token) pm.collectionVariables.set('managerToken', b.token);",
+              "pm.test('Manager token received', () => pm.expect(b.token).to.be.a('string').and.not.empty);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - List menu",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/menu"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Menu list returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('Menu response is an array', () => pm.expect(b).to.be.an('array'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Create menu item",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"A2 Collection Test Item\",\"description\":\"Temporary item for API testing\",\"price\":12.5,\"category\":\"Testing\",\"available\":true}"
+        },
+        "url": "{{baseUrl}}/api/menu"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Menu item created with 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "if (b._id) pm.collectionVariables.set('menuItemId', b._id);",
+              "pm.test('Created item has an ID', () => pm.expect(b._id).to.be.a('string'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - Get menu item by ID",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/menu/{{menuItemId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Get menu item returns 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 - Update menu item",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"name\":\"A2 Collection Test Item Updated\",\"description\":\"Updated by collection test\",\"price\":13,\"category\":\"Testing\",\"available\":true}"
+        },
+        "url": "{{baseUrl}}/api/menu/{{menuItemId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Menu item updated with 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 - Create order as customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"items\":[{\"menuItem\":\"{{menuItemId}}\",\"quantity\":2}],\"deliveryAddress\":\"A2 API test address\"}"
+        },
+        "url": "{{baseUrl}}/api/orders"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Order created with 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "if (b.order && b.order._id) pm.collectionVariables.set('orderId', b.order._id);",
+              "pm.test('Order total is calculated', () => pm.expect(b.order.totalAmount).to.eql(26));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 - List orders as customer",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/orders"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Orders list returns 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 - Customer cannot confirm order",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"status\":\"Confirmed\"}"
+        },
+        "url": "{{baseUrl}}/api/orders/{{orderId}}/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Customer receives 403 when confirming order', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "16 - Manager confirms order",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"status\":\"Confirmed\"}"
+        },
+        "url": "{{baseUrl}}/api/orders/{{orderId}}/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager updates order with 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "17 - Create reservation as customer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+          "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"date\":\"2030-12-31\",\"time\":\"18:30\",\"guests\":2,\"notes\":\"A2 API collection test\"}"
+        },
+        "url": "{{baseUrl}}/api/reservations"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Reservation created with 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "if (b.reservation && b.reservation._id) pm.collectionVariables.set('reservationId', b.reservation._id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "18 - List reservations as customer",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/reservations"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Reservations list returns 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "19 - Customer cannot confirm reservation",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"status\":\"Confirmed\"}"
+        },
+        "url": "{{baseUrl}}/api/reservations/{{reservationId}}/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Customer receives 403 when confirming reservation', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "20 - Manager confirms reservation",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"status\":\"Confirmed\"}"
+        },
+        "url": "{{baseUrl}}/api/reservations/{{reservationId}}/status"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager updates reservation with 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "21 - Invalid menu ID (expected 400)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/menu/not-a-valid-object-id"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Invalid menu ID should return 400', () => pm.response.to.have.status(400));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "22 - Delete test menu item",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/menu/{{menuItemId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Test menu item deleted with 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "23 - List tables as manager",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/tables"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Tables list returns 200', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('Tables response is an array with at least six tables', () => { pm.expect(b).to.be.an('array'); pm.expect(b.length).to.be.at.least(6); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "24 - Customer cannot create table",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set('testTableNumber', 1000 + Math.floor(Math.random() * 8000000));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Customer is forbidden from creating a table', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{customerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tableNumber\":{{testTableNumber}},\"capacity\":2}"
+        },
+        "url": "{{baseUrl}}/api/tables"
+      }
+    },
+    {
+      "name": "25 - Manager creates test table",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"tableNumber\":{{testTableNumber}},\"capacity\":2}"
+        },
+        "url": "{{baseUrl}}/api/tables"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager creates table with 201', () => pm.response.to.have.status(201));",
+              "const b = pm.response.json();",
+              "pm.test('Created table has an ID', () => pm.expect(b.table._id).to.be.a('string'));",
+              "if (b.table && b.table._id) pm.collectionVariables.set('testTableId', b.table._id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "26 - Manager updates test table",
+      "request": {
+        "method": "PATCH",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"status\":\"Unavailable\"}"
+        },
+        "url": "{{baseUrl}}/api/tables/{{testTableId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager updates table with 200', () => pm.response.to.have.status(200));",
+              "pm.test('Table status was updated', () => pm.expect(pm.response.json().table.status).to.eql('Unavailable'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "27 - Manager deletes test table",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{managerToken}}"
+          }
+        ],
+        "url": "{{baseUrl}}/api/tables/{{testTableId}}"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Manager deletes test table with 200', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "customerEmail",
+      "value": ""
+    },
+    {
+      "key": "customerPassword",
+      "value": "Customer123!"
+    },
+    {
+      "key": "customerToken",
+      "value": ""
+    },
+    {
+      "key": "managerEmail",
+      "value": ""
+    },
+    {
+      "key": "managerPassword",
+      "value": "Manager123!"
+    },
+    {
+      "key": "managerToken",
+      "value": ""
+    },
+    {
+      "key": "menuItemId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "reservationId",
+      "value": ""
+    },
+    {
+      "key": "testTableNumber",
+      "value": ""
+    },
+    {
+      "key": "testTableId",
+      "value": ""
+    }
+  ]
+}

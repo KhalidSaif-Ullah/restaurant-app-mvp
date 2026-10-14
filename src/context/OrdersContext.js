@@ -1,132 +1,125 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-    createContext,
-    useContext,
-    useEffect,
-    useReducer,
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useReducer,
 } from 'react';
-  
-  const OrdersContext = createContext(null);
-  
-  const STORAGE_KEY = '@restaurant_orders';
-  
-  const initialState = {
-    orders: [],
-    isLoaded: false,
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { restaurantApi } from '../services/restaurantApi';
+import { useAuth } from './AuthContext';
+
+const OrdersContext = createContext(null);
+const ORDERS_KEY = '@restaurant_orders';
+
+const initialState = { orders: [], isLoaded: false };
+
+function normalizeOrder(order) {
+  const address = order.deliveryAddress || '';
+
+  return {
+    ...order,
+    id: String(order._id || order.id),
+    total: Number(order.totalAmount ?? order.total ?? 0),
+    type: address.startsWith('Dine-in') ? 'Dine-in' : 'Takeaway',
+    tableNumber: address.startsWith('Dine-in')
+      ? address.replace('Dine-in table: ', '')
+      : null,
+    pickupTime: address.startsWith('Takeaway')
+      ? address.replace('Takeaway pickup: ', '')
+      : null,
+    timestamp: order.createdAt
+      ? new Date(order.createdAt).getTime()
+      : order.timestamp || Date.now(),
+    items: (order.items || []).map((item) => ({
+      ...item,
+      id: String(item.menuItem?._id || item.menuItem || item.id || item.name),
+      name: item.name || item.menuItem?.name || 'Menu item',
+      price: Number(item.price || 0),
+      quantity: Number(item.quantity || 1),
+    })),
   };
-  
-  function ordersReducer(state, action) {
-    switch (action.type) {
-      case 'LOAD_ORDERS':
-        return {
-          orders: action.payload,
-          isLoaded: true,
-        };
-  
-      case 'ADD_ORDER':
-        return {
-          ...state,
-          orders: [
-            ...state.orders,
-            action.payload,
-          ],
-        };
-  
-      case 'UPDATE_ORDER_STATUS':
-        return {
-          ...state,
-          orders: state.orders.map((order) =>
-            order.id === action.payload.id
-              ? {
-                  ...order,
-                  status: action.payload.status,
-                }
-              : order
-          ),
-        };
-  
-      case 'CLEAR_ORDERS':
-        return {
-          ...state,
-          orders: [],
-        };
-  
-      default:
-        return state;
-    }
-  }
-  
-  export function OrdersProvider({
-    children,
-  }) {
-    const [state, dispatch] = useReducer(
-      ordersReducer,
-      initialState
-    );
-  
-    useEffect(() => {
-      const loadOrders = async () => {
-        try {
-          const saved =
-            await AsyncStorage.getItem(
-              STORAGE_KEY
-            );
-  
-          dispatch({
-            type: 'LOAD_ORDERS',
-            payload: saved
-              ? JSON.parse(saved)
-              : [],
-          });
-        } catch (error) {
-          console.log(
-            'Failed to load orders:',
-            error
-          );
-  
-          dispatch({
-            type: 'LOAD_ORDERS',
-            payload: [],
-          });
-        }
+}
+
+function extractOrders(data) {
+  if (Array.isArray(data)) return data;
+  return data?.orders || [];
+}
+
+function reducer(state, action) {
+  switch (action.type) {
+    case 'LOAD_ORDERS':
+      return { ...state, orders: action.payload, isLoaded: true };
+
+    case 'ADD_ORDER':
+      return {
+        ...state,
+        orders: [action.payload, ...state.orders],
       };
-  
-      loadOrders();
-    }, []);
-  
-    useEffect(() => {
-      if (!state.isLoaded) {
+
+    case 'UPDATE_ORDER_STATUS':
+      return {
+        ...state,
+        orders: state.orders.map((order) =>
+          order.id === String(action.payload.id)
+            ? { ...order, status: action.payload.status }
+            : order
+        ),
+      };
+
+    case 'CLEAR_ORDERS':
+      return { ...state, orders: [] };
+
+    default:
+      return state;
+  }
+}
+
+export function OrdersProvider({ children }) {
+  const { token } = useAuth();
+  const [state, dispatch] = useReducer(reducer, initialState);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadOrders() {
+      if (!token) {
+        dispatch({ type: 'LOAD_ORDERS', payload: [] });
         return;
       }
-  
-      AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(state.orders)
-      ).catch((error) => {
-        console.log(
-          'Failed to save orders:',
-          error
-        );
-      });
-    }, [state.orders, state.isLoaded]);
-  
-    return (
-      <OrdersContext.Provider
-        value={{ state, dispatch }}
-      >
-        {children}
-      </OrdersContext.Provider>
-    );
-  }
-  
-  export function useOrders() {
-    const context = useContext(OrdersContext);
-  
-    if (!context) {
-      throw new Error(
-        'useOrders must be used inside OrdersProvider'
-      );
+
+      try {
+        const data = await restaurantApi.getOrders(token);
+        const orders = extractOrders(data).map(normalizeOrder);
+
+        if (active) {
+          dispatch({ type: 'LOAD_ORDERS', payload: orders });
+          await AsyncStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+        }
+      } catch (error) {
+        console.error('Could not load orders:', error.message);
+
+        if (active) {
+          dispatch({ type: 'LOAD_ORDERS', payload: [] });
+        }
+      }
     }
-  
-    return context;
-  }
+
+    loadOrders();
+
+    return () => {
+      active = false;
+    };
+  }, [token]);
+
+  return (
+    <OrdersContext.Provider value={{ state, dispatch }}>
+      {children}
+    </OrdersContext.Provider>
+  );
+}
+
+export function useOrders() {
+  const context = useContext(OrdersContext);
+  if (!context) throw new Error('useOrders must be used inside OrdersProvider');
+  return context;
+}

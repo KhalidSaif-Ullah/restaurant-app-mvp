@@ -1,11 +1,13 @@
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useState } from 'react';
 import {
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
@@ -14,10 +16,24 @@ export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout } = useAuth();
   const { theme, isDark, toggleTheme } = useTheme();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const handleLogout = () => {
-    logout();
-    router.replace('/');
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+
+    setIsLoggingOut(true);
+
+    try {
+      await logout();
+      router.replace('/');
+    } catch (error) {
+      Alert.alert(
+        'Logout Failed',
+        'Could not complete logout. Please try again.'
+      );
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -41,21 +57,21 @@ export default function ProfileScreen() {
           Name
         </Text>
         <Text style={[styles.value, { color: theme.text }]}>
-          {user?.name}
+          {user?.name || 'Not available'}
         </Text>
 
         <Text style={[styles.label, { color: theme.text }]}>
           Email
         </Text>
         <Text style={[styles.value, { color: theme.text }]}>
-          {user?.email}
+          {user?.email || 'Not available'}
         </Text>
 
         <Text style={[styles.label, { color: theme.text }]}>
           Role
         </Text>
         <Text style={[styles.value, { color: theme.text }]}>
-          {user?.role}
+          {user?.role || 'Not available'}
         </Text>
       </View>
 
@@ -71,10 +87,18 @@ export default function ProfileScreen() {
       </View>
 
       <TouchableOpacity
-        style={styles.logoutButton}
+        style={[
+          styles.logoutButton,
+          isLoggingOut && styles.disabledButton,
+        ]}
         onPress={handleLogout}
+        disabled={isLoggingOut}
       >
-        <Text style={styles.logoutText}>Logout</Text>
+        {isLoggingOut ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <Text style={styles.logoutText}>Logout</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -118,6 +142,9 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 8,
     alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
   logoutText: {
     color: '#fff',

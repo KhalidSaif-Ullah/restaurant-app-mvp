@@ -1,205 +1,122 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../context/AuthContext';
-import { users } from '../data/users';
+import { restaurantApi } from '../services/restaurantApi';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
 
   const [mode, setMode] = useState('login');
-
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [role, setRole] = useState('Customer');
-
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errors, setErrors] = useState({});
 
-  const validate = () => {
-    const newErrors = {};
+  const handleSubmit = async () => {
+    const cleanEmail = email.trim().toLowerCase();
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      newErrors.email = 'Enter a valid email address';
-    }
-
-    if (password.length < 8 || !/\d/.test(password)) {
-      newErrors.password =
-        'Password must be at least 8 characters and contain a digit';
+    if (!cleanEmail || !password) {
+      Alert.alert('Missing information', 'Enter your email and password.');
+      return;
     }
 
     if (mode === 'signup') {
       if (!name.trim()) {
-        newErrors.name = 'Name is required';
+        Alert.alert('Missing information', 'Enter your name.');
+        return;
       }
 
       if (password !== confirmPassword) {
-        newErrors.confirmPassword = 'Passwords do not match';
+        Alert.alert('Password mismatch', 'The passwords do not match.');
+        return;
+      }
+
+      if (password.length < 6) {
+        Alert.alert('Invalid password', 'Use at least 6 characters.');
+        return;
       }
     }
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = () => {
-    if (!validate()) return;
-
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      if (mode === 'login') {
-        const user = users.find(
-          (item) =>
-            item.email === email.trim() &&
-            item.password === password
-        );
+    try {
+      if (mode === 'signup') {
+        await restaurantApi.register({
+          name: name.trim(),
+          email: cleanEmail,
+          password,
+          role,
+        });
+      }
 
-        setIsSubmitting(false);
+      const result = await restaurantApi.login(cleanEmail, password);
+      const user = result.user || result.data?.user;
+      const token = result.token || result.data?.token;
 
-        if (!user) {
-          Alert.alert('Login Failed', 'Invalid email or password.');
-          return;
-        }
-
-        login(user);
-
-        router.replace(
-          user.role === 'Manager' ? '/dashboard' : '/menu'
-        );
-      } else {
-        setIsSubmitting(false);
-
-        Alert.alert(
-          'Success',
-          `Account created for ${name}.`
+      if (!user || !token) {
+        throw new Error(
+          mode === 'signup'
+            ? 'Account created, but login details were not returned. Switch to Login and sign in.'
+            : 'The server did not return a user and token.'
         );
       }
-    }, 1000);
+
+      await login(user, token);
+
+      if (user.role === 'Manager') {
+        router.replace('/dashboard');
+      } else {
+        router.replace('/menu');
+      }
+    } catch (error) {
+      Alert.alert('Authentication failed', error.message || 'Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const changeMode = () => {
-    setMode(mode === 'login' ? 'signup' : 'login');
-    setErrors({});
-  };
+  const inputStyle = styles.input;
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>
-        {mode === 'login' ? 'Restaurant App' : 'Create Account'}
+      <Text style={styles.title}>Restaurant App</Text>
+      <Text style={styles.subtitle}>
+        {mode === 'login' ? 'Sign in to continue' : 'Create your account'}
       </Text>
 
       {mode === 'signup' && (
         <>
           <TextInput
-            style={styles.input}
-            placeholder="Name"
+            style={inputStyle}
+            placeholder="Full name"
             value={name}
-            onChangeText={(text) => {
-              setName(text);
-              setErrors({ ...errors, name: undefined });
-            }}
+            onChangeText={setName}
+            autoCapitalize="words"
           />
-
-          {errors.name && (
-            <Text style={styles.error}>{errors.name}</Text>
-          )}
-        </>
-      )}
-
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={(text) => {
-          setEmail(text);
-          setErrors({ ...errors, email: undefined });
-        }}
-      />
-
-      {errors.email && (
-        <Text style={styles.error}>{errors.email}</Text>
-      )}
-
-      <View style={styles.passwordRow}>
-        <TextInput
-          style={styles.passwordInput}
-          placeholder="Password"
-          secureTextEntry={!showPassword}
-          value={password}
-          onChangeText={(text) => {
-            setPassword(text);
-            setErrors({ ...errors, password: undefined });
-          }}
-        />
-
-        <TouchableOpacity
-          onPress={() => setShowPassword(!showPassword)}
-        >
-          <Text style={styles.showText}>
-            {showPassword ? 'Hide' : 'Show'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {errors.password && (
-        <Text style={styles.error}>{errors.password}</Text>
-      )}
-
-      {mode === 'signup' && (
-        <>
-          <TextInput
-            style={styles.input}
-            placeholder="Confirm Password"
-            secureTextEntry
-            value={confirmPassword}
-            onChangeText={(text) => {
-              setConfirmPassword(text);
-              setErrors({
-                ...errors,
-                confirmPassword: undefined,
-              });
-            }}
-          />
-
-          {errors.confirmPassword && (
-            <Text style={styles.error}>
-              {errors.confirmPassword}
-            </Text>
-          )}
-
-          <Text style={styles.label}>Role</Text>
 
           <View style={styles.roleRow}>
             <TouchableOpacity
-              style={[
-                styles.roleButton,
-                role === 'Customer' && styles.selectedRole,
-              ]}
+              style={[styles.roleButton, role === 'Customer' && styles.selected]}
               onPress={() => setRole('Customer')}
             >
               <Text>Customer</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[
-                styles.roleButton,
-                role === 'Manager' && styles.selectedRole,
-              ]}
+              style={[styles.roleButton, role === 'Manager' && styles.selected]}
               onPress={() => setRole('Manager')}
             >
               <Text>Manager</Text>
@@ -208,24 +125,66 @@ export default function LoginScreen() {
         </>
       )}
 
+      <TextInput
+        style={inputStyle}
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+
+      <TextInput
+        style={inputStyle}
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry={!showPassword}
+        autoCapitalize="none"
+      />
+
       <TouchableOpacity
-        style={styles.submitButton}
+        style={styles.showPassword}
+        onPress={() => setShowPassword((current) => !current)}
+      >
+        <Text>{showPassword ? 'Hide password' : 'Show password'}</Text>
+      </TouchableOpacity>
+
+      {mode === 'signup' && (
+        <TextInput
+          style={inputStyle}
+          placeholder="Confirm password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showPassword}
+          autoCapitalize="none"
+        />
+      )}
+
+      <TouchableOpacity
+        style={[styles.submitButton, isSubmitting && styles.disabled]}
         onPress={handleSubmit}
         disabled={isSubmitting}
       >
         {isSubmitting ? (
-          <ActivityIndicator color="#fff" />
+          <ActivityIndicator color="#ffffff" />
         ) : (
           <Text style={styles.submitText}>
-            {mode === 'login' ? 'Login' : 'Sign Up'}
+            {mode === 'login' ? 'Login' : 'Create Account'}
           </Text>
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={changeMode}>
+      <TouchableOpacity
+        style={styles.switchButton}
+        onPress={() => setMode((current) =>
+          current === 'login' ? 'signup' : 'login'
+        )}
+      >
         <Text style={styles.switchText}>
           {mode === 'login'
-            ? "Don't have an account? Sign Up"
+            ? "Don't have an account? Sign up"
             : 'Already have an account? Login'}
         </Text>
       </TouchableOpacity>
@@ -238,73 +197,71 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 24,
+    backgroundColor: '#ffffff',
   },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: 'bold',
     textAlign: 'center',
-    marginBottom: 30,
+    marginBottom: 8,
+    color: '#222222',
+  },
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 28,
+    color: '#666666',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#aaa',
+    borderColor: '#cccccc',
     borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-  },
-  passwordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#aaa',
-    borderRadius: 8,
-    marginBottom: 8,
-  },
-  passwordInput: {
-    flex: 1,
-    padding: 12,
-  },
-  showText: {
-    padding: 12,
-    fontWeight: 'bold',
-  },
-  error: {
-    color: 'red',
-    marginBottom: 8,
-  },
-  label: {
-    marginTop: 8,
-    marginBottom: 8,
-    fontWeight: 'bold',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    fontSize: 16,
   },
   roleRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 20,
+    marginBottom: 12,
   },
   roleButton: {
     flex: 1,
-    padding: 12,
     borderWidth: 1,
-    borderColor: '#aaa',
+    borderColor: '#cccccc',
     borderRadius: 8,
+    padding: 12,
     alignItems: 'center',
   },
-  selectedRole: {
-    backgroundColor: '#ddd',
+  selected: {
+    borderColor: '#d35400',
+    backgroundColor: '#fff0e6',
+  },
+  showPassword: {
+    alignSelf: 'flex-end',
+    marginBottom: 16,
   },
   submitButton: {
-    backgroundColor: '#333',
-    padding: 15,
+    backgroundColor: '#d35400',
     borderRadius: 8,
+    padding: 15,
     alignItems: 'center',
+    marginTop: 4,
+  },
+  disabled: {
+    opacity: 0.6,
   },
   submitText: {
-    color: '#fff',
+    color: '#ffffff',
     fontWeight: 'bold',
+    fontSize: 16,
+  },
+  switchButton: {
+    padding: 16,
+    alignItems: 'center',
   },
   switchText: {
-    textAlign: 'center',
-    marginTop: 20,
+    color: '#d35400',
   },
 });

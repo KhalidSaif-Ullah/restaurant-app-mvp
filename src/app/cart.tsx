@@ -1,17 +1,21 @@
+
 import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-    Alert,
-    FlatList,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useCart } from '../context/CartContext';
 import { useOrders } from '../context/OrdersContext';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
+import { restaurantApi } from '../services/restaurantApi';
 
 const SERVICE_RATE = 0.05;
 const SALES_TAX_RATE = 0.15;
@@ -21,29 +25,26 @@ export default function Cart() {
   const { state, dispatch } = useCart();
   const { theme } = useTheme();
   const { dispatch: orderDispatch } = useOrders();
+  const { user, token } = useAuth();
 
   const [promoCode, setPromoCode] = useState('');
   const [orderType, setOrderType] = useState('Dine-in');
   const [tableNumber, setTableNumber] = useState('');
   const [pickupTime, setPickupTime] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const totals = useMemo(() => {
     const subtotal = state.items.reduce(
-      (total, item) =>
-        total + item.price * item.quantity,
+      (total, item) => total + item.price * item.quantity,
       0
     );
 
     const serviceCharge = subtotal * SERVICE_RATE;
     const salesTax = subtotal * SALES_TAX_RATE;
-    const discount =
-      subtotal * (state.discountPercent / 100);
+    const discount = subtotal * (state.discountPercent / 100);
 
     const grandTotal =
-      subtotal +
-      serviceCharge +
-      salesTax -
-      discount;
+      subtotal + serviceCharge + salesTax - discount;
 
     return {
       subtotal,
@@ -66,24 +67,25 @@ export default function Cart() {
       'Clear Cart',
       'Remove all items from the cart?',
       [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
+        { text: 'Cancel', style: 'cancel' },
         {
           text: 'Clear',
-          onPress: () =>
-            dispatch({ type: 'CLEAR_CART' }),
+          onPress: () => dispatch({ type: 'CLEAR_CART' }),
         },
       ]
     );
   };
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     if (state.items.length === 0) {
+      Alert.alert('Empty Cart', 'Add items before placing an order.');
+      return;
+    }
+
+    if (!user || !token) {
       Alert.alert(
-        'Empty Cart',
-        'Add items before placing an order.'
+        'Login Required',
+        'Please log in before placing an order.'
       );
       return;
     }
@@ -110,43 +112,83 @@ export default function Cart() {
       return;
     }
 
-    const order = {
-      id: Date.now().toString(),
-      items: state.items,
-      total: totals.grandTotal,
-      type: orderType,
-      tableNumber:
+    setIsSubmitting(true);
+
+    try {
+      const deliveryAddress =
         orderType === 'Dine-in'
-          ? tableNumber
-          : null,
-      pickupTime:
-        orderType === 'Takeaway'
-          ? pickupTime
-          : null,
-      status: 'Pending',
-      timestamp: Date.now(),
-    };
+          ? `Dine-in table: ${tableNumber.trim()}`
+          : `Takeaway pickup: ${pickupTime.trim()}`;
 
-    orderDispatch({
-      type: 'ADD_ORDER',
-      payload: order,
-    });
+      const result = await restaurantApi.createOrder(token, {
+        items: state.items.map((item) => ({
+          menuItem: String(item.id),
+          quantity: Number(item.quantity),
+        })),
+        deliveryAddress,
+      });
 
-    dispatch({
-      type: 'CLEAR_CART',
-    });
+      const savedOrder =
+        result.order || result.data?.order || result;
 
-    Alert.alert(
-      'Order Placed',
-      `Your order #${order.id.slice(-5)} has been placed.`,
-      [
-        {
-          text: 'Track Order',
-          onPress: () =>
-            router.push('/tracking'),
-        },
-      ]
-    );
+      if (!savedOrder._id && !savedOrder.id) {
+        throw new Error(
+          'The server did not return a saved order. Please check your orders before trying again.'
+        );
+      }
+
+      const order = {
+        ...savedOrder,
+        id: String(savedOrder._id || savedOrder.id),
+        items: (savedOrder.items || []).map((item) => ({
+          id: String(
+            item.menuItem?._id ||
+              item.menuItem ||
+              item.id ||
+              item.name
+          ),
+          name: item.name || item.menuItem?.name || 'Menu item',
+          price: Number(item.price || 0),
+          quantity: Number(item.quantity || 1),
+          note: '',
+        })),
+        total: Number(savedOrder.totalAmount ?? totals.subtotal),
+        type: orderType,
+        tableNumber:
+          orderType === 'Dine-in' ? tableNumber.trim() : null,
+        pickupTime:
+          orderType === 'Takeaway' ? pickupTime.trim() : null,
+        status: savedOrder.status || 'Pending',
+        timestamp: savedOrder.createdAt
+          ? new Date(savedOrder.createdAt).getTime()
+          : Date.now(),
+      };
+
+      orderDispatch({
+        type: 'ADD_ORDER',
+        payload: order,
+      });
+
+      dispatch({ type: 'CLEAR_CART' });
+
+      Alert.alert(
+        'Order Placed',
+        `Your order #${order.id.slice(-5)} has been saved.\nDatabase total: Rs. ${order.total.toFixed(2)}`,
+        [
+          {
+            text: 'Track Order',
+            onPress: () => router.push('/tracking'),
+          },
+        ]
+      );
+    } catch (error: any) {
+      Alert.alert(
+        'Order Failed',
+        error.message || 'Could not place your order. Please try again.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -157,10 +199,7 @@ export default function Cart() {
       ]}
     >
       <Text
-        style={[
-          styles.title,
-          { color: theme.text },
-        ]}
+        style={[styles.title, { color: theme.text }]}
       >
         Your Cart
       </Text>
@@ -168,10 +207,7 @@ export default function Cart() {
       {state.items.length === 0 ? (
         <View style={styles.empty}>
           <Text
-            style={[
-              styles.emptyText,
-              { color: theme.text },
-            ]}
+            style={[styles.emptyText, { color: theme.text }]}
           >
             Your cart is empty.
           </Text>
@@ -180,18 +216,16 @@ export default function Cart() {
             style={styles.button}
             onPress={() => router.replace('/menu')}
           >
-            <Text style={styles.buttonText}>
-              Back to Menu
-            </Text>
+            <Text style={styles.buttonText}>Back to Menu</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <FlatList
           data={state.items}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item) => String(item.id)}
           style={styles.list}
           contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={true}
+          showsVerticalScrollIndicator
           renderItem={({ item }) => (
             <View
               style={[
@@ -200,19 +234,13 @@ export default function Cart() {
               ]}
             >
               <Text
-                style={[
-                  styles.itemName,
-                  { color: theme.text },
-                ]}
+                style={[styles.itemName, { color: theme.text }]}
               >
                 {item.name}
               </Text>
 
               <Text
-                style={[
-                  styles.price,
-                  { color: theme.text },
-                ]}
+                style={[styles.price, { color: theme.text }]}
               >
                 Rs. {item.price} × {item.quantity}
               </Text>
@@ -227,14 +255,11 @@ export default function Cart() {
                 ]}
                 placeholder="Special instructions"
                 placeholderTextColor="#888"
-                value={item.note}
+                value={item.note || ''}
                 onChangeText={(note) =>
                   dispatch({
                     type: 'UPDATE_NOTE',
-                    payload: {
-                      id: item.id,
-                      note,
-                    },
+                    payload: { id: item.id, note },
                   })
                 }
               />
@@ -249,16 +274,11 @@ export default function Cart() {
                     })
                   }
                 >
-                  <Text style={styles.buttonText}>
-                    −
-                  </Text>
+                  <Text style={styles.buttonText}>−</Text>
                 </TouchableOpacity>
 
                 <Text
-                  style={[
-                    styles.quantity,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.quantity, { color: theme.text }]}
                 >
                   {item.quantity}
                 </Text>
@@ -272,9 +292,7 @@ export default function Cart() {
                     })
                   }
                 >
-                  <Text style={styles.buttonText}>
-                    +
-                  </Text>
+                  <Text style={styles.buttonText}>+</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -286,9 +304,7 @@ export default function Cart() {
                     })
                   }
                 >
-                  <Text style={styles.buttonText}>
-                    Remove
-                  </Text>
+                  <Text style={styles.buttonText}>Remove</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -315,9 +331,7 @@ export default function Cart() {
                   style={styles.button}
                   onPress={applyPromo}
                 >
-                  <Text style={styles.buttonText}>
-                    Apply
-                  </Text>
+                  <Text style={styles.buttonText}>Apply</Text>
                 </TouchableOpacity>
               </View>
 
@@ -329,10 +343,7 @@ export default function Cart() {
 
               {state.promoCode !== '' && (
                 <Text
-                  style={[
-                    styles.applied,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.applied, { color: theme.text }]}
                 >
                   {state.promoCode} applied:{' '}
                   {state.discountPercent}% off
@@ -341,62 +352,41 @@ export default function Cart() {
 
               <View style={styles.summary}>
                 <Text
-                  style={[
-                    styles.summaryText,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.summaryText, { color: theme.text }]}
                 >
-                  Subtotal: Rs.{' '}
-                  {totals.subtotal.toFixed(2)}
+                  Subtotal: Rs. {totals.subtotal.toFixed(2)}
                 </Text>
 
                 <Text
-                  style={[
-                    styles.summaryText,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.summaryText, { color: theme.text }]}
                 >
                   Service (5%): Rs.{' '}
                   {totals.serviceCharge.toFixed(2)}
                 </Text>
 
                 <Text
-                  style={[
-                    styles.summaryText,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.summaryText, { color: theme.text }]}
                 >
                   Sales Tax (15%): Rs.{' '}
                   {totals.salesTax.toFixed(2)}
                 </Text>
 
                 <Text
-                  style={[
-                    styles.summaryText,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.summaryText, { color: theme.text }]}
                 >
-                  Discount: Rs.{' '}
-                  {totals.discount.toFixed(2)}
+                  Discount: Rs. {totals.discount.toFixed(2)}
                 </Text>
 
                 <Text
-                  style={[
-                    styles.total,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.total, { color: theme.text }]}
                 >
-                  Grand Total: Rs.{' '}
-                  {totals.grandTotal.toFixed(2)}
+                  Grand Total: Rs. {totals.grandTotal.toFixed(2)}
                 </Text>
               </View>
 
               <View style={styles.orderSection}>
                 <Text
-                  style={[
-                    styles.orderTitle,
-                    { color: theme.text },
-                  ]}
+                  style={[styles.orderTitle, { color: theme.text }]}
                 >
                   Order Type
                 </Text>
@@ -405,12 +395,9 @@ export default function Cart() {
                   <TouchableOpacity
                     style={[
                       styles.typeButton,
-                      orderType === 'Dine-in' &&
-                        styles.selectedType,
+                      orderType === 'Dine-in' && styles.selectedType,
                     ]}
-                    onPress={() =>
-                      setOrderType('Dine-in')
-                    }
+                    onPress={() => setOrderType('Dine-in')}
                   >
                     <Text
                       style={[
@@ -426,12 +413,9 @@ export default function Cart() {
                   <TouchableOpacity
                     style={[
                       styles.typeButton,
-                      orderType === 'Takeaway' &&
-                        styles.selectedType,
+                      orderType === 'Takeaway' && styles.selectedType,
                     ]}
-                    onPress={() =>
-                      setOrderType('Takeaway')
-                    }
+                    onPress={() => setOrderType('Takeaway')}
                   >
                     <Text
                       style={[
@@ -476,22 +460,29 @@ export default function Cart() {
                 )}
 
                 <TouchableOpacity
-                  style={styles.placeOrderButton}
+                  style={[
+                    styles.placeOrderButton,
+                    isSubmitting && styles.disabledButton,
+                  ]}
                   onPress={placeOrder}
+                  disabled={isSubmitting}
                 >
-                  <Text style={styles.buttonText}>
-                    Place Order
-                  </Text>
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.buttonText}>
+                      Place Order
+                    </Text>
+                  )}
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
                 style={styles.clearButton}
                 onPress={clearCart}
+                disabled={isSubmitting}
               >
-                <Text style={styles.buttonText}>
-                  Clear Cart
-                </Text>
+                <Text style={styles.buttonText}>Clear Cart</Text>
               </TouchableOpacity>
             </View>
           }
@@ -506,53 +497,44 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingTop: 20,
   },
-
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     paddingHorizontal: 20,
     marginBottom: 5,
   },
-
   list: {
     flex: 1,
   },
-
   listContent: {
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 35,
   },
-
   card: {
     padding: 15,
     borderRadius: 10,
     marginBottom: 12,
   },
-
   itemName: {
     fontSize: 18,
     fontWeight: 'bold',
   },
-
   price: {
     marginTop: 5,
   },
-
   noteInput: {
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     marginTop: 10,
   },
-
   controls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     marginTop: 10,
   },
-
   smallButton: {
     backgroundColor: '#333',
     width: 35,
@@ -561,32 +543,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   quantity: {
     fontSize: 17,
     fontWeight: 'bold',
   },
-
   removeButton: {
     backgroundColor: '#333',
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 8,
   },
-
   promoRow: {
     flexDirection: 'row',
     paddingTop: 5,
     gap: 8,
   },
-
   promoInput: {
     flex: 1,
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
   },
-
   button: {
     backgroundColor: '#333',
     paddingHorizontal: 15,
@@ -594,51 +571,41 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     justifyContent: 'center',
   },
-
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
   },
-
   error: {
     color: 'red',
     marginTop: 5,
   },
-
   applied: {
     marginTop: 5,
   },
-
   summary: {
     paddingVertical: 15,
   },
-
   summaryText: {
     fontSize: 16,
     marginBottom: 5,
   },
-
   total: {
     fontSize: 20,
     fontWeight: 'bold',
     marginTop: 5,
   },
-
   orderSection: {
     paddingBottom: 10,
   },
-
   orderTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 10,
   },
-
   typeRow: {
     flexDirection: 'row',
     gap: 10,
   },
-
   typeButton: {
     flex: 1,
     minHeight: 42,
@@ -648,20 +615,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   selectedType: {
     backgroundColor: '#333',
     borderColor: '#333',
   },
-
   typeText: {
     fontWeight: 'bold',
   },
-
   selectedTypeText: {
     color: '#fff',
   },
-
   orderInput: {
     borderWidth: 1,
     borderRadius: 8,
@@ -669,7 +632,6 @@ const styles = StyleSheet.create({
     minHeight: 45,
     marginTop: 10,
   },
-
   placeOrderButton: {
     backgroundColor: '#333',
     minHeight: 48,
@@ -678,7 +640,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
   },
-
+  disabledButton: {
+    opacity: 0.6,
+  },
   clearButton: {
     backgroundColor: '#333',
     marginTop: 10,
@@ -687,13 +651,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
-
   empty: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   emptyText: {
     fontSize: 18,
     marginBottom: 15,
