@@ -17,6 +17,30 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
+let dbConnectionPromise = null;
+
+async function connectToDatabase() {
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
+  if (!process.env.MONGO_URI) {
+    throw new Error('MONGO_URI is missing');
+  }
+
+  if (!dbConnectionPromise) {
+    dbConnectionPromise = mongoose.connect(process.env.MONGO_URI, {
+      serverSelectionTimeoutMS: 15000,
+    }).catch((error) => {
+      dbConnectionPromise = null;
+      throw error;
+    });
+  }
+
+  await dbConnectionPromise;
+  console.log('MongoDB connected:', mongoose.connection.name);
+}
+
 app.get('/api/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -24,18 +48,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Connect to MongoDB before database-backed routes.
+app.use(async (req, res, next) => {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.get('/api/test-db', async (req, res, next) => {
   try {
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({
-        success: false,
-        message: 'MongoDB is not connected',
-      });
-    }
-
     await mongoose.connection.db.admin().ping();
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: 'Backend connected to MongoDB successfully',
       database: mongoose.connection.name,
@@ -67,25 +94,19 @@ app.use((err, req, res, next) => {
   });
 });
 
-async function startServer() {
-  try {
-    if (!process.env.MONGO_URI) {
-      throw new Error('MONGO_URI is missing from the server .env file');
-    }
+// Export the Express app for Vercel.
+module.exports = app;
 
-    await mongoose.connect(process.env.MONGO_URI, {
-      serverSelectionTimeoutMS: 15000,
+// Start a normal HTTP server when running locally.
+if (require.main === module) {
+  connectToDatabase()
+    .then(() => {
+      app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Restaurant API running on port ${PORT}`);
+      });
+    })
+    .catch((error) => {
+      console.error('Failed to start server:', error.message);
+      process.exit(1);
     });
-
-    console.log('MongoDB connected:', mongoose.connection.name);
-
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Restaurant API running on port ${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server:', error.message);
-    process.exit(1);
-  }
 }
-
-startServer();
